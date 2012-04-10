@@ -8,9 +8,9 @@
 #include <netinet/in.h>
 #include <errno.h>
 
-#define set_header(type, seq) ((type << 28) | (seq & (0xF << 28)))
-#define get_type(header) (header >> 28)
-#define get_seq(header) (header & (0xF << 28))
+#define set_header(type, seq) (htonl(((type << 28) | (seq & (0xF << 28)))))
+#define get_type(header) ((ntohl(header) >> 28))
+#define get_seq(header) (ntohl(header) & (0xF << 28))
 
 #define SYN 0
 #define SYN_ACK 1
@@ -22,7 +22,7 @@
 #define RTO 1
 #define TIME_WAIT 10
 
-#define set_timer(timer, sec) \
+#define set_abstimer(timer, sec) \
     do { \
         timer.tv_sec = time(NULL) + sec; \
         timer.tv_nsec = 0; \
@@ -59,8 +59,9 @@ static int len;
  * 0 - idle
  * 1 - 3WHS SYN-ACK Received
  * 2 - Connection establish
- * 3 - 4WHS FIN-ACK Received
- * 4 - Waiting for connection close
+ * 3 - Closing connection
+ * 4 - 4WHS FIN-ACK Received
+ * 5 - Waiting for connection close
  */
 static int state = 0;
 
@@ -76,10 +77,11 @@ static void sender(struct rdtp_argv *argv) {
     /* 3WHS */
     printe("Start 3WHS\n");
     do {
-        set_timer(timer, RTO);
         header = set_header(SYN, 0);
         sendto( sockfd, &header, sizeof(int), 0, 
                 (struct sockaddr*) addr, sizeof(struct sockaddr_in));
+        len = 1; 
+        set_abstimer(timer, RTO);
         if (pthread_cond_timedwait(&cond_ack, &mutex_ack, &timer)) {
             printe("[Connect] Timeout\n");
             continue;
@@ -91,35 +93,42 @@ static void sender(struct rdtp_argv *argv) {
         break;
     } while (1);
     
+    state = 1;
     printe("First packet received. \n");
 
     do {
-        set_timer(timer, RTO);
+        set_abstimer(timer, RTO);
         header = set_header(SYN, seq);
         sendto( sockfd, &header, sizeof(int), 0,
                 (struct sockaddr*) addr, sizeof(struct sockaddr_in));
         /* TODO Retransmit ? */
     } while (0);
 
+    state = 2;
+    printe("3WHS Done\n");
     pthread_cond_signal(&cond_done);
 
     while (1) {
         /* Main content */
         pthread_cond_wait(&cond_work, &mutex_work);
         printe("Receive work ... \n");
+        if (state == 3)
+            break;
     }
 
     /* 4WHS */
+    printe("Start 4WHS\n");
     do {
         /* FIN */
+        int tmp;
         pthread_mutex_lock(&mutex_seq);
-        int tmp = seq;
-        set_timer(timer, RTO);
+        tmp = seq;
         header = set_header(SYN, tmp);
         pthread_mutex_unlock(&mutex_seq);
         sendto( sockfd, &header, sizeof(int), 0, 
                 (struct sockaddr*) addr, sizeof(struct sockaddr_in));
         /* FIN-ACK */
+        set_abstimer(timer, RTO);
         if (pthread_cond_timedwait(&cond_ack, &mutex_ack, &timer)) {
             printe("[Close] Timeout\n");
             continue;
@@ -130,27 +139,103 @@ static void sender(struct rdtp_argv *argv) {
         }
         break;
     } while (1);
+    state = 4;
 
     do {
         /* ACK */
-        set_timer(timer, RTO);
+        set_abstimer(timer, RTO);
         header = set_header(ACK, seq);
         sendto( sockfd, &header, sizeof(int), 0, 
                 (struct sockaddr*) addr, sizeof(struct sockaddr_in));
         /* TODO Retransmit ? */
     } while (0);
 
-    sleep(TIME_WAIT);
+    state = 5;
+    printe("4WHS Done ... Waiting for TIME_WAIT\n");
 
+    sleep(TIME_WAIT);
+    
+    printe("TIME_WAIT exceed ... Go die now\n");
+    pthread_cond_signal(&cond_ack);
+    
     /* Wrap up ... */
-    pthread_join(&thread[1], NULL);
+    pthread_join(thread[1], NULL);
+    state = 0;
     free(argv);
     pthread_exit(0);
 }
 
 static void receiver(struct rdtp_argv *argv) {
-    while(1);
-    return;
+    int sockfd;
+    struct sockaddr_in *addr;
+
+    sockfd = argv -> sockfd;
+    addr = argv -> addr;
+    
+    while (1) {
+        int header; 
+        char buf[1004];
+        int reclen;
+        socklen_t addrlen = sizeof(struct sockaddr_in);
+        reclen = recvfrom(   sockfd, buf, 1004, 0, 
+                    (struct sockaddr*) addr, &addrlen);
+        if (reclen < 4) {
+            printe("Reclen less than header ... reclen = %d\n", reclen);
+            continue;
+        }
+        header = ntohl((int) buf[0]);
+        pthread_mutex_lock(&mutex_seq);
+        if (get_seq(header) != (seq + len)) {
+            printe( "Wrong SEQ ... Expected: %d | Received: %d\n", 
+                    seq, get_seq(header));
+            continue;
+        }
+        switch (get_type(header)) {
+            case SYN_ACK: 
+                if (state == 0) {
+                    printe("SYN-ACK correct\n");
+                } else {
+                    printe( "SYN-ACK at non-starting phase [T = %d, S = %d]\n", 
+                            get_type(header), get_seq(header));
+                    pthread_mutex_unlock(&mutex_seq);
+                    continue;
+                }
+                break;
+            case FIN_ACK: 
+                if (state == 4) {
+                    printe("FIN-ACK correct\n");
+                    goto out;
+                } else {
+                    printe( "FIN-ACK at non-ending phase [T = %d, S = %d] \n", 
+                            get_type(header), get_seq(header));
+                    pthread_mutex_unlock(&mutex_seq);
+                    continue;
+                }
+                break;
+            case ACK: 
+                if (state == 3) {
+                    printe("ACK correct\n");
+                } else {
+                    printe( "ACK at non-middle phase [T = %d, S = %d] \n", 
+                            get_type(header), get_seq(header));
+                    pthread_mutex_unlock(&mutex_seq);
+                    continue;
+                }
+                break;
+            default: 
+                printe( "Unknown data received. [T = %d, S = %d]\n", 
+                        get_type(header), get_seq(header));
+        }
+        seq += len;
+        pthread_mutex_unlock(&mutex_seq);
+        pthread_cond_signal(&cond_ack);
+    }
+
+out: 
+    printe("Entering final state ... \n");
+    pthread_cond_wait(&cond_ack, &mutex_ack);
+    printe("Die now .. ");
+    pthread_exit(0);
 }
 
 void rdtp_connect(int socket_fd, struct sockaddr_in *server_addr) {
@@ -175,8 +260,9 @@ int rdtp_write(int socket_fd, unsigned char *buf, int buf_len) {
 }
 
 void rdtp_close(int socket_fd) {
-    // please extend this function
-    
+    state = 3;
+    pthread_cond_signal(&cond_work);
+    pthread_join(thread[0], NULL);
 	return;
 }
 
