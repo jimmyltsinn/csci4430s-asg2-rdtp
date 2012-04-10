@@ -24,7 +24,7 @@
 
 #define set_timer(timer, sec) \
     do { \
-        timer.tv_sec = sec; \
+        timer.tv_sec = time(NULL) + sec; \
         timer.tv_nsec = 0; \
     } while (0)
 
@@ -41,15 +41,28 @@ static pthread_t thread[2];
 static pthread_cond_t cond_ack = PTHREAD_COND_INITIALIZER;
 static pthread_cond_t cond_work = PTHREAD_COND_INITIALIZER;
 static pthread_cond_t cond_done = PTHREAD_COND_INITIALIZER;
-static pthread_mutex_t mutex;
+static pthread_mutex_t mutex_ack = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t mutex_work = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t mutex_done = PTHREAD_MUTEX_INITIALIZER;
 
 struct rdtp_argv {
     int sockfd;
     struct sockaddr_in *addr;
 };
 
+static pthread_mutex_t mutex_seq = PTHREAD_MUTEX_INITIALIZER;
 static int seq;
 static int len;
+
+/**
+ * State variable
+ * 0 - idle
+ * 1 - 3WHS SYN-ACK Received
+ * 2 - Connection establish
+ * 3 - 4WHS FIN-ACK Received
+ * 4 - Waiting for connection close
+ */
+static int state = 0;
 
 static void sender(struct rdtp_argv *argv) {
     int header;
@@ -60,21 +73,14 @@ static void sender(struct rdtp_argv *argv) {
     sockfd = argv -> sockfd;
     addr = argv -> addr;
 
-//    printe("Wait for cond_ack ...\n");
-//    pthread_cond_wait(&cond_ack, &mutex);
-//    printe("Fire cond_done\n");
-//    pthread_cond_signal(&cond_done);
-
     /* 3WHS */
-    printe("Wait for cond_work ... \n");
-    pthread_cond_wait(&cond_work, &mutex);
     printe("Start 3WHS\n");
     do {
         set_timer(timer, RTO);
         header = set_header(SYN, 0);
-        sendto(sockfd, &header, sizeof(int), 0, 
+        sendto( sockfd, &header, sizeof(int), 0, 
                 (struct sockaddr*) addr, sizeof(struct sockaddr_in));
-        if (pthread_cond_timedwait(&cond_ack, &mutex, &timer)) {
+        if (pthread_cond_timedwait(&cond_ack, &mutex_ack, &timer)) {
             printe("[Connect] Timeout\n");
             continue;
         }
@@ -82,19 +88,67 @@ static void sender(struct rdtp_argv *argv) {
             printe("[Connect] Wrong SEQ\n");
             continue;
         }
-    } while (0);
+        break;
+    } while (1);
     
+    printe("First packet received. \n");
+
+    do {
+        set_timer(timer, RTO);
+        header = set_header(SYN, seq);
+        sendto( sockfd, &header, sizeof(int), 0,
+                (struct sockaddr*) addr, sizeof(struct sockaddr_in));
+        /* TODO Retransmit ? */
+    } while (0);
+
+    pthread_cond_signal(&cond_done);
 
     while (1) {
+        /* Main content */
+        pthread_cond_wait(&cond_work, &mutex_work);
+        printe("Receive work ... \n");
     }
 
+    /* 4WHS */
+    do {
+        /* FIN */
+        pthread_mutex_lock(&mutex_seq);
+        int tmp = seq;
+        set_timer(timer, RTO);
+        header = set_header(SYN, tmp);
+        pthread_mutex_unlock(&mutex_seq);
+        sendto( sockfd, &header, sizeof(int), 0, 
+                (struct sockaddr*) addr, sizeof(struct sockaddr_in));
+        /* FIN-ACK */
+        if (pthread_cond_timedwait(&cond_ack, &mutex_ack, &timer)) {
+            printe("[Close] Timeout\n");
+            continue;
+        }
+        if (seq - tmp != 1) {
+            printe("[Close] Wrong SEQ \n");
+            continue;
+        }
+        break;
+    } while (1);
+
+    do {
+        /* ACK */
+        set_timer(timer, RTO);
+        header = set_header(ACK, seq);
+        sendto( sockfd, &header, sizeof(int), 0, 
+                (struct sockaddr*) addr, sizeof(struct sockaddr_in));
+        /* TODO Retransmit ? */
+    } while (0);
+
+    sleep(TIME_WAIT);
+
+    /* Wrap up ... */
+    pthread_join(&thread[1], NULL);
     free(argv);
     pthread_exit(0);
 }
 
 static void receiver(struct rdtp_argv *argv) {
-//    pthread_cond_signal(&cond_ack);
-//    printe("Fire cond_ack\n");
     while(1);
     return;
 }
@@ -109,9 +163,8 @@ void rdtp_connect(int socket_fd, struct sockaddr_in *server_addr) {
     pthread_create(&thread[0], NULL, (void* (*) (void *)) sender, argv);
     pthread_create(&thread[1], NULL, (void* (*) (void *)) receiver, argv);
     sleep(0);
-    pthread_cond_wait(&cond_done, &mutex);
     pthread_cond_signal(&cond_work);
-    pthread_cond_wait(&cond_done, &mutex);
+    pthread_cond_wait(&cond_done, &mutex_done);
 	return;
 }
 
