@@ -1,39 +1,11 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <pthread.h>
-#include <unistd.h>
-#include <sys/socket.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <netinet/in.h>
-#include <errno.h>
-
-#define set_header(type, seq) (htonl(((type << 28) | (seq & (0xF << 28)))))
-#define get_type(header) ((ntohl(header) >> 28))
-#define get_seq(header) (ntohl(header) & (0xF << 28))
-
-#define SYN 0
-#define SYN_ACK 1
-#define FIN 2
-#define FIN_ACK 3
-#define ACK 4
-#define DATA 5
-
-#define RTO 1
-#define TIME_WAIT 10
+#include "rdtp.h"
+#include "rdtp_client.h"
 
 #define set_abstimer(timer, sec) \
     do { \
         timer.tv_sec = time(NULL) + sec; \
         timer.tv_nsec = 0; \
     } while (0)
-
-#ifndef BUILD
-#define printe(fmt, arg ...) \
-           fprintf(stderr, "[%s():%3d] " fmt, __FUNCTION__, __LINE__, ##arg)
-#else
-#define printe(fmt, ...) (0)
-#endif
 
 extern unsigned char global_send_buf[];
 
@@ -44,11 +16,6 @@ static pthread_cond_t cond_done = PTHREAD_COND_INITIALIZER;
 static pthread_mutex_t mutex_ack = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t mutex_work = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t mutex_done = PTHREAD_MUTEX_INITIALIZER;
-
-struct rdtp_argv {
-    int sockfd;
-    struct sockaddr_in *addr;
-};
 
 static pthread_mutex_t mutex_seq = PTHREAD_MUTEX_INITIALIZER;
 static int seq;
@@ -177,10 +144,10 @@ static void receiver(struct rdtp_argv *argv) {
         char buf[1004];
         int reclen;
         socklen_t addrlen = sizeof(struct sockaddr_in);
-        reclen = recvfrom(   sockfd, buf, 1004, 0, 
-                    (struct sockaddr*) addr, &addrlen);
+        reclen = recvfrom(  sockfd, buf, 1004, 0, 
+                            (struct sockaddr*) addr, &addrlen);
         if (reclen < 4) {
-            printe("Reclen less than header ... reclen = %d\n", reclen);
+            printe("Reclen (%d) less than header ... \n", reclen);
             continue;
         }
         header = ntohl((int) buf[0]);
@@ -247,7 +214,7 @@ void rdtp_connect(int socket_fd, struct sockaddr_in *server_addr) {
 
     pthread_create(&thread[0], NULL, (void* (*) (void *)) sender, argv);
     pthread_create(&thread[1], NULL, (void* (*) (void *)) receiver, argv);
-    sleep(0);
+//    sleep(0);
     pthread_cond_signal(&cond_work);
     pthread_cond_wait(&cond_done, &mutex_done);
 	return;

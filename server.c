@@ -80,7 +80,7 @@ int main(int argc, char **argv)
 	printf("Connect with client %s:%d\n", inet_ntoa(client_addr.sin_addr),ntohs(client_addr.sin_port));
 
 
-	if( (file_fd = open(filename, O_CREAT | O_WRONLY | O_TRUNC, 0666)) == -1)
+	if( (file_fd = open(argv[2], O_CREAT | O_WRONLY | O_TRUNC, 0666)) == -1)
 	{
 		fprintf(stderr, "%s (line %d): %s - open():\n",
 			__FILE__, __LINE__, __FUNCTION__);

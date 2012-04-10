@@ -10,7 +10,7 @@ client: client.o rdtp_client.o
 client.o: client.c rdtp_client.h
 	${CC} ${CFLAGS} client.c -c ${LDFLAGS}
 
-rdtp_client.o: rdtp_client.c rdtp_client.h rdtp_common.h
+rdtp_client.o: rdtp_client.c rdtp_client.h rdtp_common.h rdtp.h
 	${CC} ${CFLAGS} rdtp_client.c -c ${LDFLAGS}
 
 server: server.o rdtp_server.o
@@ -19,7 +19,7 @@ server: server.o rdtp_server.o
 server.o: server.c rdtp_server.h
 	${CC} ${CFLAGS} server.c -c ${LDFLAGS}
 
-rdtp_server.o: rdtp_server.c rdtp_server.h rdtp_common.h
+rdtp_server.o: rdtp_server.c rdtp_server.h rdtp_common.h rdtp.h
 	${CC} ${CFLAGS} rdtp_server.c -c ${LDFLAGS}
 
 clean:

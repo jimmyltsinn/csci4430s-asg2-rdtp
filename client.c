@@ -15,8 +15,7 @@
 unsigned char global_send_buf[MAX_BUF_SIZE];
 unsigned char global_recv_buf[MAX_BUF_SIZE];
 
-int main(int argc, char **argv)
-{
+int main(int argc, char **argv) {
 	int file_fd;			// input file.
 	int sock_fd;			// client socket.
 	struct sockaddr_in server_addr;	// addr structure for UDP
