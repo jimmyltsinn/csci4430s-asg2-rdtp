@@ -1,13 +1,9 @@
 #include "rdtp.h"
 #include "rdtp_client.h"
 
-#define set_abstimer(timer, sec) \
-    do { \
-        timer.tv_sec = time(NULL) + sec; \
-        timer.tv_nsec = 0; \
-    } while (0)
-
 extern unsigned char global_send_buf[];
+
+static char *sendbuf;
 
 static pthread_t thread[2];
 static pthread_cond_t cond_ack = PTHREAD_COND_INITIALIZER;
@@ -34,23 +30,25 @@ static int state = 0;
 
 static void sender(struct rdtp_argv *argv) {
     int header;
-    int sockfd;
-    struct sockaddr_in *addr;
+    int sockfd = argv -> sockfd;
+    struct sockaddr_in *addr = argv -> addr;
     struct timespec timer; 
 
-    sockfd = argv -> sockfd;
-    addr = argv -> addr;
+    seq = 0;
 
     /* 3WHS */
     printe("Start 3WHS\n");
     do {
+        int e; 
         header = set_header(SYN, 0);
-        sendto( sockfd, &header, sizeof(int), 0, 
-                (struct sockaddr*) addr, sizeof(struct sockaddr_in));
+        printe("Send SYN with SEQ = 0 to %s : %d\n", inet_ntoa(addr -> sin_addr), ntohs(addr -> sin_port));
+        sendto(sockfd, &header, sizeof(int), 0, 
+               (struct sockaddr*) addr, sizeof(struct sockaddr_in));
         len = 1; 
+        printe("Start wait ... \n");
         set_abstimer(timer, RTO);
-        if (pthread_cond_timedwait(&cond_ack, &mutex_ack, &timer)) {
-            printe("[Connect] Timeout\n");
+        if ((e = pthread_cond_timedwait(&cond_ack, &mutex_ack, &timer)) != 0) {
+            printe("(%d) %s\n", time(NULL), strerror(e));
             continue;
         }
         if (seq != 1) {
@@ -61,7 +59,8 @@ static void sender(struct rdtp_argv *argv) {
     } while (1);
     
     state = 1;
-    printe("First packet received. \n");
+    seq += len;
+    printe("SYN-ACK received. \n");
 
     do {
         set_abstimer(timer, RTO);
@@ -79,8 +78,10 @@ static void sender(struct rdtp_argv *argv) {
         /* Main content */
         pthread_cond_wait(&cond_work, &mutex_work);
         printe("Receive work ... \n");
-        if (state == 3)
+        if (state == 3) {
+            /* TODO Check empty buffer */
             break;
+        }
     }
 
     /* 4WHS */
@@ -133,24 +134,28 @@ static void sender(struct rdtp_argv *argv) {
 }
 
 static void receiver(struct rdtp_argv *argv) {
-    int sockfd;
-    struct sockaddr_in *addr;
+    int sockfd = argv -> sockfd;
+    struct sockaddr_in *addr = argv -> addr;
 
-    sockfd = argv -> sockfd;
-    addr = argv -> addr;
-    
+    sendbuf = malloc(sizeof(char) * ((2 << 28) -  1));
+
     while (1) {
         int header; 
         char buf[1004];
         int reclen;
         socklen_t addrlen = sizeof(struct sockaddr_in);
-        reclen = recvfrom(  sockfd, buf, 1004, 0, 
-                            (struct sockaddr*) addr, &addrlen);
+        printe("Waiting for receive from %s:%d... \n", 
+               inet_ntoa(addr -> sin_addr), ntohs(addr -> sin_port));
+        reclen = recvfrom(sockfd, buf, sizeof(int), 0, 
+                          (struct sockaddr*) addr, &addrlen);
+        printe("Received something ... \n");
         if (reclen < 4) {
             printe("Reclen (%d) less than header ... \n", reclen);
             continue;
         }
-        header = ntohl((int) buf[0]);
+        len = 0;
+        header = (int) *buf;
+        printe("Header = %d\n", header);
         pthread_mutex_lock(&mutex_seq);
         if (get_seq(header) != (seq + len)) {
             printe( "Wrong SEQ ... Expected: %d | Received: %d\n", 
@@ -162,8 +167,8 @@ static void receiver(struct rdtp_argv *argv) {
                 if (state == 0) {
                     printe("SYN-ACK correct\n");
                 } else {
-                    printe( "SYN-ACK at non-starting phase [T = %d, S = %d]\n", 
-                            get_type(header), get_seq(header));
+                    printe("SYN-ACK at non-starting phase [T = %d, S = %d]\n", 
+                           get_type(header), get_seq(header));
                     pthread_mutex_unlock(&mutex_seq);
                     continue;
                 }
@@ -190,8 +195,8 @@ static void receiver(struct rdtp_argv *argv) {
                 }
                 break;
             default: 
-                printe( "Unknown data received. [T = %d, S = %d]\n", 
-                        get_type(header), get_seq(header));
+                printe( "Unknown data received. [T = %d, S = %d] from %d\n", 
+                        get_type(header), get_seq(header), header);
         }
         seq += len;
         pthread_mutex_unlock(&mutex_seq);
@@ -214,7 +219,7 @@ void rdtp_connect(int socket_fd, struct sockaddr_in *server_addr) {
 
     pthread_create(&thread[0], NULL, (void* (*) (void *)) sender, argv);
     pthread_create(&thread[1], NULL, (void* (*) (void *)) receiver, argv);
-//    sleep(0);
+
     pthread_cond_signal(&cond_work);
     pthread_cond_wait(&cond_done, &mutex_done);
 	return;
@@ -230,6 +235,7 @@ void rdtp_close(int socket_fd) {
     state = 3;
     pthread_cond_signal(&cond_work);
     pthread_join(thread[0], NULL);
+    free(sendbuf);
 	return;
 }
 

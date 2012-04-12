@@ -6,12 +6,23 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <netinet/in.h>
+#include <string.h>
 #include <errno.h>
+#include <sys/time.h>
+#include <arpa/inet.h>
 #include "rdtp_common.h"
 
 #define set_header(type, seq) (htonl(((type << 28) | (seq & (0xF << 28)))))
 #define get_type(header) ((ntohl(header) >> 28))
 #define get_seq(header) (ntohl(header) & (0xF << 28))
+
+#define set_abstimer(timer, sec)            \
+    do {                                    \
+        struct timeval now;                 \
+        gettimeofday(&now, NULL);           \
+        timer.tv_sec = now.tv_sec + sec;    \
+        timer.tv_nsec = now.tv_usec * 1000; \
+    } while (timer.tv_sec == time(NULL))
 
 #define SYN 0
 #define SYN_ACK 1
@@ -25,7 +36,7 @@
 
 #ifndef BUILD
 #define printe(fmt, arg ...) \
-           fprintf(stderr, "[%s():%3d] " fmt, __FUNCTION__, __LINE__, ##arg)
+           fprintf(stderr, "[01;35m[%s:%s():%3d][0m " fmt, __FILE__, __FUNCTION__, __LINE__, ##arg)
 #else
 #define printe(fmt, ...) (0)
 #endif
