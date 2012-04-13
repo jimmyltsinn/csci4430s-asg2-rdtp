@@ -92,10 +92,10 @@ static void receiver(struct rdtp_argv *argv) {
             continue;
         }
         header = ((int*) buf)[0];
-//        if (seq < get_seq(header)) {
-//            printe( "Wrong SEQ ... Expected: %d | Received: %d\n", 
-//                    seq, get_seq(header));
-//        }
+        if (seq < get_seq(header)) {
+            printe( "Wrong SEQ ... Expected: %d | Received: %d\n", 
+                    seq, get_seq(header));
+        }
         switch (state) {
             case 0: 
                 if (get_seq(header) == 0) {
@@ -138,6 +138,7 @@ static void receiver(struct rdtp_argv *argv) {
                     continue;
                 }
             case 2: 
+                
                 ;
                 break;
             default: 
