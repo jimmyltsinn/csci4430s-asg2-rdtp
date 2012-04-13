@@ -12,9 +12,9 @@
 #include <arpa/inet.h>
 #include "rdtp_common.h"
 
-#define set_header(type, seq) ((((type << 28) | (seq & (~(0xF << 28))))))
-#define get_type(header) (((header) >> 28) & (0xF))
-#define get_seq(header) ((header) & (~(0xF << 28)))
+#define set_header(type, seq) (htonl((((type) << 28) | ((seq) & (~(0xF << 28))))))
+#define get_type(header) ((ntohl(header) >> 28) & (0xF))
+#define get_seq(header) (ntohl(header) & (~(0xF << 28)))
 
 #define set_abstimer(timer, sec)            \
     do {                                    \
@@ -36,7 +36,8 @@
 
 #ifndef BUILD
 #define printe(fmt, arg ...) \
-           fprintf(stderr, "[01;35m[%ld] [%s:%s():%3d][0m " fmt, time(NULL), __FILE__, __FUNCTION__, __LINE__, ##arg)
+    fprintf(stderr, "[1;42m[%ld][0m [1;35m[%s: %8s(): %3d][0m " fmt, \
+            time(NULL), __FILE__, __FUNCTION__, __LINE__, ##arg)
 #else
 #define printe(fmt, ...) (0)
 #endif
