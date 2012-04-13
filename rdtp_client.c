@@ -41,30 +41,30 @@ static void sender(struct rdtp_argv *argv) {
     do {
         int e; 
         header = set_header(SYN, 0);
-        printe("Send SYN with SEQ = 0 to %s : %d\n", inet_ntoa(addr -> sin_addr), ntohs(addr -> sin_port));
+        printe("[> SYN] (%d: %d-%d)\n", 
+                header, get_type(header), get_seq(header));
         sendto(sockfd, &header, sizeof(int), 0, 
                (struct sockaddr*) addr, sizeof(struct sockaddr_in));
-        len = 1; 
-        printe("Start wait ... \n");
+        perror("[> SYN] sendto()");
+        len = 0;
         set_abstimer(timer, RTO);
+        printe("[> SYN] Start wait ... \n");
         if ((e = pthread_cond_timedwait(&cond_ack, &mutex_ack, &timer)) != 0) {
-            printe("(%d) %s\n", time(NULL), strerror(e));
+            printe("[X<SYN-ACK] (%d) %s\n", time(NULL), strerror(e));
             continue;
         }
-        if (seq != 1) {
-            printe("[Connect] Wrong SEQ\n");
-            continue;
-        }
+        printe("[< SYN-ACK] Correct\n");
+        state = 1;
         break;
     } while (1);
     
-    state = 1;
-    seq += len;
-    printe("SYN-ACK received. \n");
-
+    printe("state = %d\n", state);
+    
     do {
         set_abstimer(timer, RTO);
-        header = set_header(SYN, seq);
+        header = set_header(ACK, 1);
+        printe("[> ACK] Send %d: %d-%d \n", 
+                header, get_type(header), get_seq(header));
         sendto( sockfd, &header, sizeof(int), 0,
                 (struct sockaddr*) addr, sizeof(struct sockaddr_in));
         /* TODO Retransmit ? */
@@ -144,28 +144,82 @@ static void receiver(struct rdtp_argv *argv) {
         char buf[1004];
         int reclen;
         socklen_t addrlen = sizeof(struct sockaddr_in);
-        printe("Waiting for receive from %s:%d... \n", 
-               inet_ntoa(addr -> sin_addr), ntohs(addr -> sin_port));
+        printe("recvfrom() ... \n");
         reclen = recvfrom(sockfd, buf, sizeof(int), 0, 
                           (struct sockaddr*) addr, &addrlen);
-        printe("Received something ... \n");
+        printe("recnfrom() return (%d)\n", reclen);
         if (reclen < 4) {
             printe("Reclen (%d) less than header ... \n", reclen);
             continue;
         }
-        len = 0;
-        header = (int) *buf;
+        header = ((int*) buf)[0];
         printe("Header = %d\n", header);
         pthread_mutex_lock(&mutex_seq);
-        if (get_seq(header) != (seq + len)) {
+/*        if (state == 0) {
+            if (get_seq(header) != 1) {
+                printe( "Wrong SEQ ... Expected: %d | Received: %d\n", 
+                        1, get_seq(header));
+            }
+        } else if (get_seq(header) != (seq + len)) {
             printe( "Wrong SEQ ... Expected: %d | Received: %d\n", 
-                    seq, get_seq(header));
+                    seq + len, get_seq(header));
             continue;
         }
-        switch (get_type(header)) {
+*/
+        switch (state) {
+            case 0: 
+            case 1: 
+                if (get_type(header) == SYN_ACK) {
+                    if (get_seq(header) == 1) {
+                        printe("[< SYN-ACK] Correct: %d: %d-%d", 
+                                header, get_type(header), get_seq(header));
+                        state = 1;
+                    } else {
+                        printe("[< SYN-ACK] WRONG SEQ ... [%d: %d-%d]\n", 
+                                header, get_type(header), get_seq(header));
+                        continue;
+                    }
+                } else {
+                    printe("[X<SYN-ACK] Receiving wrong data ... [%d: %d-%d]\n", 
+                            header, get_type(header), get_seq(header));
+                    continue;    
+                }
+                break;
+            case 2: 
+                printe("Receiving in normal state ...");
+                if (get_type(header) == DATA) {
+                    /* Data received */
+                } else if (get_type(header) == FIN) {
+                    /* Goto 4WHS */
+                    state = 3;
+                } else {
+                    printe("Receiving wrong data ... [%d-%d]\n", 
+                            get_type(header), get_seq(header));
+                    continue;
+                }
+                break;
+            case 4: 
+                if (get_type(header) == FIN_ACK) {
+                    printe("Receive FIN-ACK\n");
+                    state = 5;
+                } else {
+                    printe("Receiving wrong data ... [%d-%d]\n", 
+                            get_type(header), get_seq(header));
+                    continue;
+                }
+                break;
+            default: 
+                printe("Unknown state (%d) receive data ... [%d-%d]\n",
+                        state, get_type(header), get_seq(header));
+                continue;
+        }
+/*        switch (get_type(header)) {
             case SYN_ACK: 
-                if (state == 0) {
+                if (state <= 1) {
                     printe("SYN-ACK correct\n");
+        printe("cond_ack signal sent\n");
+        pthread_cond_signal(&cond_ack);
+                    seq = 1;
                 } else {
                     printe("SYN-ACK at non-starting phase [T = %d, S = %d]\n", 
                            get_type(header), get_seq(header));
@@ -176,6 +230,8 @@ static void receiver(struct rdtp_argv *argv) {
             case FIN_ACK: 
                 if (state == 4) {
                     printe("FIN-ACK correct\n");
+        printe("cond_ack signal sent\n");
+        pthread_cond_signal(&cond_ack);
                     goto out;
                 } else {
                     printe( "FIN-ACK at non-ending phase [T = %d, S = %d] \n", 
@@ -187,6 +243,8 @@ static void receiver(struct rdtp_argv *argv) {
             case ACK: 
                 if (state == 3) {
                     printe("ACK correct\n");
+        printe("cond_ack signal sent\n");
+        pthread_cond_signal(&cond_ack);
                 } else {
                     printe( "ACK at non-middle phase [T = %d, S = %d] \n", 
                             get_type(header), get_seq(header));
@@ -197,10 +255,11 @@ static void receiver(struct rdtp_argv *argv) {
             default: 
                 printe( "Unknown data received. [T = %d, S = %d] from %d\n", 
                         get_type(header), get_seq(header), header);
-        }
-        seq += len;
-        pthread_mutex_unlock(&mutex_seq);
+        }*/
+
+        printe("cond_ack signal sent\n");
         pthread_cond_signal(&cond_ack);
+        pthread_mutex_unlock(&mutex_seq);
     }
 
 out: 
@@ -228,7 +287,8 @@ void rdtp_connect(int socket_fd, struct sockaddr_in *server_addr) {
 int rdtp_write(int socket_fd, unsigned char *buf, int buf_len) {
     // please extend this function
 
-	return 1; 	//return bytes of data sended out
+    printe("Write is not yet implemented\n");
+	return 0; 	//return bytes of data sended out
 }
 
 void rdtp_close(int socket_fd) {

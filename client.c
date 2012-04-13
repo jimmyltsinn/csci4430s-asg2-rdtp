@@ -84,8 +84,8 @@ int main(int argc, char **argv) {
 
     // assume that there is no problem when closing connection.
 
-	rdtp_close(sock_fd);
-
+//	rdtp_close(sock_fd);
+    while(1);
 	close(file_fd);
 
 	return 0;
