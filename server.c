@@ -88,7 +88,7 @@ int main(int argc, char **argv)
 		exit(1);
 	}
 
-/*	while(1)
+	while(1)
 	{
 		 // assume that there is no problem in receving data.
 		read_rtn = rdtp_read(sock_fd, (unsigned char*) buf, MAX_BUF_SIZE);
@@ -98,8 +98,8 @@ int main(int argc, char **argv)
 
 		write(file_fd, buf, read_rtn);
 	}
-*/
-    getchar();
+
+    //getchar();
     
     rdtp_close();
 	printf("Disconnect with client %s:%d\n", inet_ntoa(client_addr.sin_addr),ntohs(client_addr.sin_port));

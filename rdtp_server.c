@@ -133,7 +133,7 @@ static void receiver(struct rdtp_argv *argv) {
 
         pthread_mutex_lock(&mutex_work);
 
-        if (seq > get_seq(header)) {
+        if (seq < get_seq(header)) {
             printe("Wrong SEQ ... Expected: %d | Received: %d\n", 
                    seq, get_seq(header));
             continue;

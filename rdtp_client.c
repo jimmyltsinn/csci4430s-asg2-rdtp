@@ -103,7 +103,7 @@ static void sender(struct rdtp_argv *argv) {
         printe("Trigger send ...\n");
         if (state == 3) {
             printe("In close state ...\n");
-            if (buf_front == buf_end) {
+            if (buf_front >= buf_end) {
                 printe("No more thing in buf ... Really close connection\n");
                 break;
             }
@@ -220,7 +220,7 @@ static void receiver(struct rdtp_argv *argv) {
         printe("Header = %d\n", header);
         pthread_mutex_lock(&mutex_seq);
 
-        if (get_seq(header) != (seq + len)) {
+        if (get_seq(header) < seq) {
             printe( "Wrong SEQ ... Expected: %d | Received: %d\n", 
                     seq + len, get_seq(header));
             continue;
@@ -243,24 +243,28 @@ static void receiver(struct rdtp_argv *argv) {
                 break;
             case 2: 
                 printe("Receiving in normal state ...");
+normal_dat: 
                 if (get_type(header) == ACK) {
                     printe("[< ACK-DATA] %d: %d-%d\n", 
                             header, get_type(header), get_seq(header));
                     printe("seq change\n");
                     seq = get_seq(header);
-                } else {
+                    buf_front = sendbuf + seq;
+                    break;
+                } else if (state != 3) {
                     printe("[< ???] %d: %d-%d\n", 
                             header, get_type(header), get_seq(header));
                     pthread_mutex_unlock(&mutex_ack);
                     continue;
                 }
-                break;
             case 3: 
             case 5: 
                 if (get_type(header) == FIN_ACK) {
                     printe("[< FIN-ACK] Correct\n");
                     state = 5;
                     seq += len;
+                } else if (get_type(header) == ACK) {
+                    goto normal_dat;
                 } else {
                     printe("[X<FIN-ACK] %d: %d-%d\n", 
                             header, get_type(header), get_seq(header));

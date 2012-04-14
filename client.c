@@ -69,7 +69,7 @@ int main(int argc, char **argv) {
 
    // File reading and data sending loop  *
 
-/*	printf("\nStarting reading data and sending data to server ...\n");
+	printf("\nStarting reading data and sending data to server ...\n");
 	fflush(stdout);
 
 	while( (read_rtn = read(file_fd, buf, MAX_BUF_SIZE)) > 0)
@@ -79,8 +79,8 @@ int main(int argc, char **argv) {
 		rdtp_write(sock_fd, (unsigned char *) buf, read_rtn);
 
 	}
-*/
-    getchar();
+
+//    getchar();
 	printf("done\n\n");
 
     // assume that there is no problem when closing connection.
