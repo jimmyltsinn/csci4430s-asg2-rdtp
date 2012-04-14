@@ -34,14 +34,6 @@
 #define RTO 1
 #define TIME_WAIT 10
 
-#ifndef BUILD
-#define printe(fmt, arg ...) \
-    fprintf(stderr, "[1;42m[%ld][0m [1;35m[%s: %8s(): %3d][0m " fmt, \
-            time(NULL), __FILE__, __FUNCTION__, __LINE__, ##arg)
-#else
-#define printe(fmt, ...) (0)
-#endif
-
 struct rdtp_argv {
     int sockfd;
     struct sockaddr_in *addr;

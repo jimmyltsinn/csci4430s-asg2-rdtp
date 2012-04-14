@@ -23,7 +23,6 @@ int main(int argc, char **argv)
 	struct sockaddr_in client_addr;	// addr structure for client
 	char buf[MAX_BUF_SIZE];		// local buffer.
 	int read_rtn;
-	char filename[20];
 
 	if(argc != 3)
 	{
@@ -100,9 +99,12 @@ int main(int argc, char **argv)
 		write(file_fd, buf, read_rtn);
 	}
 */
-    while(1);
+    getchar();
+    
+    rdtp_close();
 	printf("Disconnect with client %s:%d\n", inet_ntoa(client_addr.sin_addr),ntohs(client_addr.sin_port));
-	close(file_fd);
+
+    close(file_fd);
 	close(sock_fd);
 
 	return 0;

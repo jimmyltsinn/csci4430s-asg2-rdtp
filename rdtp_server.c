@@ -1,6 +1,14 @@
 #include "rdtp.h"
 #include "rdtp_server.h"
 
+#ifndef BUILD
+#define printe(fmt, arg ...) \
+    fprintf(stderr, "[1;35m[%ld][0m [1;45m[%s: %10s(): %3d][0m " fmt, \
+            time(NULL), __FILE__, __FUNCTION__, __LINE__, ##arg)
+#else
+#define printe(fmt, ...) (0)
+#endif
+
 extern unsigned char global_send_buf[MAX_BUF_SIZE]; 
 extern unsigned char global_recv_buf[MAX_BUF_SIZE];
 
@@ -21,7 +29,9 @@ static pthread_mutex_t mutex_done = PTHREAD_MUTEX_INITIALIZER;
  *  5   TIME WAIT
  */
 static int state;
-static int seq; 
+static int seq;
+static char *recvbuf;  
+static char *buf_front, *buf_end; 
 
 static void sender(struct rdtp_argv *argv) {
     int sockfd = argv -> sockfd;
@@ -61,6 +71,11 @@ static void sender(struct rdtp_argv *argv) {
             case 2: 
                 /* TODO Main phase 
                         Sending ACK     */
+                header = set_header(ACK, seq); 
+                printe("[> ACK] %d: %d-%d\n", 
+                        header, get_type(header), get_seq(header));
+                sendto(sockfd, &header, sizeof(int), 0, 
+                       (struct sockaddr*) addr, sizeof(struct sockaddr_in));
                 break;
             case 3: 
                 /* Send FIN-ACK */
@@ -83,6 +98,7 @@ static void sender(struct rdtp_argv *argv) {
                     state = -1; 
                     pthread_cond_signal(&cond_done);
                     printe("pthread_exit()\n");
+                    free(argv);
                     pthread_exit(0);
                     break;
                 } while (1);
@@ -102,6 +118,10 @@ static void receiver(struct rdtp_argv *argv) {
         int reclen;
         socklen_t addrlen = sizeof(struct sockaddr_in);
         printe("recvfrom() ... \n");
+        if (state < 0) {
+            printe("[1; 42mProblem blocked\n");
+            break;
+        }
         reclen = recvfrom(sockfd, buf, 1004, 0, 
                           (struct sockaddr*) addr, &addrlen);
         printe("recvfrom() return (%d) !\n", reclen);
@@ -113,7 +133,7 @@ static void receiver(struct rdtp_argv *argv) {
 
         pthread_mutex_lock(&mutex_work);
 
-        if (seq != get_seq(header)) {
+        if (seq > get_seq(header)) {
             printe("Wrong SEQ ... Expected: %d | Received: %d\n", 
                    seq, get_seq(header));
             continue;
@@ -150,7 +170,11 @@ static void receiver(struct rdtp_argv *argv) {
                     /* Receive DATA */
                     printe("[< DAT] Data received %d: %d-%d\n", 
                             header, get_type(header), get_seq(header));
-                    // TODO
+                    
+                    memcpy(buf_end, buf + 4, reclen - 4);
+                    seq = get_seq(header) + reclen - 4; 
+                    buf_end = recvbuf + seq; 
+                    printe("Get %d byte data, new SEQ = %d\n", reclen - 4, seq);
                     break;
                 } else if (get_type(header) == FIN) {
                     state = 3;
@@ -179,7 +203,9 @@ static void receiver(struct rdtp_argv *argv) {
         }
         pthread_cond_signal(&cond_work);
         pthread_mutex_unlock(&mutex_work);
-        if (state >= 5) {
+        if ((state >= 5) || (state < 0)) {
+            if (state < 0) 
+                printe("[1;42mBug discovered! \n0m");
             printe("pthread_exit()\n");
             pthread_exit(0);
         }
@@ -195,6 +221,10 @@ void rdtp_accept(int socket_fd, struct sockaddr_in *server_addr) {
 
     seq = 0;
     state = 0;
+
+    recvbuf = malloc(sizeof(char) * RECV_BUF_SIZE);
+    buf_front = recvbuf;
+    buf_end = recvbuf; 
     
     pthread_create(&thread[0], NULL, (void* (*) (void *)) sender, argv);
     pthread_create(&thread[1], NULL, (void* (*) (void *)) receiver, argv);
@@ -205,10 +235,27 @@ void rdtp_accept(int socket_fd, struct sockaddr_in *server_addr) {
 }
 
 int rdtp_read(int socket_fd, unsigned char *buf, int buf_len) {
-    // please extend this function
-	return 1;		//return bytes of data read
+    int len; 
+
+    if ((state < 0) || (state >= 5))
+        return -1;
+    if (buf_front == buf_end) {
+        printe("No data ...\n");
+        return 0; 
+    }
+
+    len = (intptr_t) buf_end - (intptr_t) buf_front; 
+    if (len > buf_len)
+        len = buf_len; 
+
+    memcpy(buf, buf_front, len);
+    buf_front += len; 
+
+	return len;		//return bytes of data read
 }
 
 void rdtp_close() {
+    pthread_join(thread[0], NULL);
+    pthread_join(thread[1], NULL);
     return;
 }
