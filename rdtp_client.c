@@ -130,7 +130,6 @@ static void sender(struct rdtp_argv *argv) {
     printe("Start 4WHS\n");
     do {
         /* FIN */
-        int tmp;
         pthread_mutex_lock(&mutex_seq);
         header = set_header(FIN, seq);
         pthread_mutex_unlock(&mutex_seq);
@@ -298,8 +297,8 @@ void rdtp_connect(int socket_fd, struct sockaddr_in *server_addr) {
     argv -> addr = server_addr;
     
     sendbuf = malloc(sizeof(char) * SEND_BUF_SIZE);
-    buf_front = sendbuf;
-    buf_end = sendbuf; 
+    buf_front = sendbuf + 1;
+    buf_end = sendbuf + 1; 
 
     pthread_create(&thread[0], NULL, (void* (*) (void *)) sender, argv);
     pthread_create(&thread[1], NULL, (void* (*) (void *)) receiver, argv);

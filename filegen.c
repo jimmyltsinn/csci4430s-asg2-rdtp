@@ -19,7 +19,8 @@ int main(int argc, char **argv) {
 
     for (i = 0; i < filesize; ++i) {
         char tmp;
-        if (i % 128 == 0) tmp = '\n';
+        if (i % 1000 == 0) tmp = '|';
+        else if (i % 75 == 0) tmp = '\n';
         else tmp = rand() % 26 + 'a';
         fwrite(&tmp, 1, 1, fd);
     }

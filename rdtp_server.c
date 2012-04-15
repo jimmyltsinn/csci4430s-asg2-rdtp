@@ -99,6 +99,7 @@ static void sender(struct rdtp_argv *argv) {
                     pthread_cond_signal(&cond_done);
                     printe("pthread_exit()\n");
                     free(argv);
+                    pthread_mutex_unlock(&mutex_work);
                     pthread_exit(0);
                     break;
                 } while (1);
@@ -270,6 +271,7 @@ int rdtp_read(int socket_fd, unsigned char *buf, int buf_len) {
 }
 
 void rdtp_close() {
+    pthread_cond_broadcast(&cond_work);
     pthread_join(thread[0], NULL);
     pthread_join(thread[1], NULL);
     return;
