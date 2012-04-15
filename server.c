@@ -93,8 +93,10 @@ int main(int argc, char **argv)
 		 // assume that there is no problem in receving data.
 		read_rtn = rdtp_read(sock_fd, (unsigned char*) buf, MAX_BUF_SIZE);
 
-		if(read_rtn <= 0)
+		if(read_rtn <= 0) {
+            printf("Return 0 ...\n");
 			break;
+        }
 
 		write(file_fd, buf, read_rtn);
         perror("write()");

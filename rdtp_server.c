@@ -223,8 +223,8 @@ void rdtp_accept(int socket_fd, struct sockaddr_in *server_addr) {
     state = 0;
 
     recvbuf = malloc(sizeof(char) * RECV_BUF_SIZE);
-    buf_front = recvbuf;
-    buf_end = recvbuf; 
+    buf_front = recvbuf + 1;
+    buf_end = recvbuf + 1; 
     
     pthread_create(&thread[0], NULL, (void* (*) (void *)) sender, argv);
     pthread_create(&thread[1], NULL, (void* (*) (void *)) receiver, argv);
@@ -237,22 +237,34 @@ void rdtp_accept(int socket_fd, struct sockaddr_in *server_addr) {
 int rdtp_read(int socket_fd, unsigned char *buf, int buf_len) {
     int len; 
 
-    if ((state < 0) || (state >= 5))
+    if ((state < 0) || (state >= 5)) {
+        printe("return -1, state = %d\n", state);
         return -1;
-    if (buf_front == buf_end) {
+    }
+
+    len = (intptr_t) buf_end - (intptr_t) buf_front; 
+
+    if ((state >= 3) && (len == 0)) {
+        printe("4WHS, len = 0\n");
+        return 0;
+    }
+
+    if (len == 0) {
         printe("No data ...\n");
         pthread_cond_wait(&cond_work, &mutex_work);
+        len = (intptr_t) buf_end - (intptr_t) buf_front; 
+        pthread_mutex_unlock(&mutex_work);
     }
 
     printe("Get data ... \n");
-    len = (intptr_t) buf_end - (intptr_t) buf_front - 1; 
     if (len > buf_len)
         len = buf_len; 
+
+    printe("Write len = %d\n", len);
 
     memcpy(buf, buf_front, len);
     buf_front += len; 
     
-    pthread_mutex_unlock(&mutex_work);
 
 	return len;		//return bytes of data read
 }

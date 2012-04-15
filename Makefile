@@ -2,7 +2,10 @@ CC=gcc
 CFLAGS=-Wall -I. -g
 LDFLAGS=-lpthread
 
-all: client server
+all: client server filegen
+
+filegen: filegen.c
+	${CC} ${CFLAGS} filegen.c -o filegen
 
 client: client.o rdtp_client.o
 	${CC} ${CFLAGS} client.o rdtp_client.o -o client ${LDFLAGS}
@@ -23,4 +26,4 @@ rdtp_server.o: rdtp_server.c rdtp_server.h rdtp_common.h rdtp.h
 	${CC} ${CFLAGS} rdtp_server.c -c ${LDFLAGS}
 
 clean:
-	rm -f *.o client server
+	rm -f *.o client server filegen

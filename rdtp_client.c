@@ -310,6 +310,8 @@ void rdtp_connect(int socket_fd, struct sockaddr_in *server_addr) {
 }
 
 int rdtp_write(int socket_fd, const unsigned char *buf, int buf_len) {
+    printe("Write ...\n");
+
     switch (state) {
         case 0: 
             printe("Connection is closed or never be connected. \n");
@@ -324,8 +326,11 @@ int rdtp_write(int socket_fd, const unsigned char *buf, int buf_len) {
             return 0;
     }
 
+    printe("memcpy ...\n");
     memcpy(buf_end, buf, buf_len);
     buf_end += buf_len;
+
+    printe("Receive data ... fire signal\n");
 
     pthread_cond_signal(&cond_work);
 
