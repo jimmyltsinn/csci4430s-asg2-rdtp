@@ -201,7 +201,7 @@ static void receiver(struct rdtp_argv *argv) {
                         state, header, get_type(header), get_seq(header));
                 continue;
         }
-        pthread_cond_signal(&cond_work);
+        pthread_cond_broadcast(&cond_work);
         pthread_mutex_unlock(&mutex_work);
         if ((state >= 5) || (state < 0)) {
             if (state < 0) 
@@ -241,15 +241,18 @@ int rdtp_read(int socket_fd, unsigned char *buf, int buf_len) {
         return -1;
     if (buf_front == buf_end) {
         printe("No data ...\n");
-        return 0; 
+        pthread_cond_wait(&cond_work, &mutex_work);
     }
 
-    len = (intptr_t) buf_end - (intptr_t) buf_front; 
+    printe("Get data ... \n");
+    len = (intptr_t) buf_end - (intptr_t) buf_front - 1; 
     if (len > buf_len)
         len = buf_len; 
 
     memcpy(buf, buf_front, len);
     buf_front += len; 
+    
+    pthread_mutex_unlock(&mutex_work);
 
 	return len;		//return bytes of data read
 }

@@ -97,6 +97,7 @@ int main(int argc, char **argv)
 			break;
 
 		write(file_fd, buf, read_rtn);
+        perror("write()");
 	}
 
     //getchar();

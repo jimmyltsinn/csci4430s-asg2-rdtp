@@ -45,7 +45,7 @@ static void sender(struct rdtp_argv *argv) {
     struct timespec timer; 
 
     seq = 0;
-
+    len = 0;
     /* 3WHS */
     printe("Start 3WHS\n");
     pthread_mutex_lock(&mutex_ack);
@@ -53,9 +53,9 @@ static void sender(struct rdtp_argv *argv) {
     do {
         int e; 
         header = set_header(SYN, 0);
-        len = 1;
         printe("[> SYN] (%d: %d-%d)\n", 
                 header, get_type(header), get_seq(header));
+        seq = 1;
         sendto(sockfd, &header, sizeof(int), 0, 
                (struct sockaddr*) addr, sizeof(struct sockaddr_in));
         perror("[> SYN] sendto()");
@@ -67,14 +67,12 @@ static void sender(struct rdtp_argv *argv) {
         } 
         printe("[< SYN-ACK] Correct\n");
         state = 1;
-        len = 0;
         break;
     } while (1);
     
     do {
         set_abstimer(timer, RTO);
         header = set_header(ACK, seq);
-        len = 0;
         printe("[> ACK] Send %d: %d-%d \n", 
                 header, get_type(header), get_seq(header));
         sendto( sockfd, &header, sizeof(int), 0,
@@ -89,8 +87,12 @@ static void sender(struct rdtp_argv *argv) {
     while (1) {
         /* Main content */
         char content[1004]; 
-        int len; 
-        if (buf_front == buf_end) {
+        if (buf_front > buf_end) {
+            printe("buf_front > buf_end ...\n");
+            printe("Wait cond_work\n");
+            pthread_cond_wait(&cond_work, &mutex_work);
+        } else if (buf_front == buf_end) {
+            printe("buf_fron = buf_end\n");
             printe("Wait cond_work\n");
             pthread_cond_wait(&cond_work, &mutex_work);
         } else {
@@ -114,7 +116,7 @@ static void sender(struct rdtp_argv *argv) {
             len = 1000; 
 
         *((int *) content) = set_header(DATA, seq);
-        memcpy(content + 4, sendbuf, len);
+        memcpy(content + 4, buf_front, len);
         
         printe("Sending [%d-%d] with len = %d\n", 
                get_type(*((int *) content)), get_seq(*((int *) content)), len);
@@ -124,6 +126,7 @@ static void sender(struct rdtp_argv *argv) {
     }
 
     /* 4WHS */
+    len = 0; 
     printe("Start 4WHS\n");
     do {
         /* FIN */
@@ -131,7 +134,7 @@ static void sender(struct rdtp_argv *argv) {
         pthread_mutex_lock(&mutex_seq);
         header = set_header(FIN, seq);
         pthread_mutex_unlock(&mutex_seq);
-        len = 1;
+        seq += 1;
         printe("[> FIN] Sent %d: %d-%d\n", 
                 header, get_type(header), get_seq(header));
         sendto(sockfd, &header, sizeof(int), 0, 
@@ -167,6 +170,7 @@ static void sender(struct rdtp_argv *argv) {
     } while (0);
 
     /* Wrap up ... */
+    pthread_mutex_unlock(&mutex_work);
     pthread_join(thread[1], NULL);
     state = 0;
     free(argv);
@@ -220,8 +224,8 @@ static void receiver(struct rdtp_argv *argv) {
         printe("Header = %d\n", header);
         pthread_mutex_lock(&mutex_seq);
 
-        if (get_seq(header) < seq) {
-            printe( "Wrong SEQ ... Expected: %d | Received: %d\n", 
+        if (seq + len < get_seq(header)) {
+            printe( "Wrong SEQ ... Expected: %d < Received: %d\n", 
                     seq + len, get_seq(header));
             continue;
         }
