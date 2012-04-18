@@ -53,7 +53,6 @@ static void sender(struct rdtp_argv *argv) {
                     sendto(sockfd, &header, sizeof(int), 0, 
                            (struct sockaddr*) addr, sizeof(struct sockaddr_in));
                     printe("Send ...\n");
-                    perror("[> SYN-ACK] sendto()");
                     state = 1;
                     set_abstimer(timer, 1);
                     printe("[> SYN-ACK] Cond wait ...\n");
@@ -86,7 +85,6 @@ static void sender(struct rdtp_argv *argv) {
                             header, get_type(header), get_seq(header));
                     sendto(sockfd, &header, sizeof(int), 0, 
                            (struct sockaddr*) addr, sizeof(struct sockaddr_in));
-                    perror("[> FIN-ACK] sendto()");
                     state = 4;
                     set_abstimer(timer, 1);
                     printe("[> FIN-ACK] Cond wait ...\n");
@@ -95,8 +93,8 @@ static void sender(struct rdtp_argv *argv) {
                         printe("[< ACK] Timeout ... \n");
                         continue;
                     }
-                    state = -1; 
-                    pthread_cond_signal(&cond_done);
+					state = 5;
+                   	pthread_cond_signal(&cond_done);
                     printe("pthread_exit()\n");
                     free(argv);
                     pthread_mutex_unlock(&mutex_work);
@@ -119,7 +117,7 @@ static void receiver(struct rdtp_argv *argv) {
         int reclen;
         socklen_t addrlen = sizeof(struct sockaddr_in);
         printe("recvfrom() ... \n");
-        if (state < 0) {
+		if (state < 0 || state > 4) {
             printe("[1; 42mProblem blocked\n");
             break;
         }
@@ -197,10 +195,12 @@ static void receiver(struct rdtp_argv *argv) {
                             header, get_type(header), get_seq(header));
                     continue;
                 }
+			case 5: 
+				break;
             default: 
                 printe("Unknown state ... State = %d | %d: %d-%d\n", 
                         state, header, get_type(header), get_seq(header));
-                continue;
+				continue;
         }
         pthread_cond_broadcast(&cond_work);
         pthread_mutex_unlock(&mutex_work);
@@ -237,25 +237,24 @@ void rdtp_accept(int socket_fd, struct sockaddr_in *server_addr) {
 
 int rdtp_read(int socket_fd, unsigned char *buf, int buf_len) {
     int len; 
-
-    if ((state < 0) || (state >= 5)) {
-        printe("return -1, state = %d\n", state);
-        return -1;
-    }
+	
+	if (state < 0)
+		return -1;
 
     len = (intptr_t) buf_end - (intptr_t) buf_front; 
-
-    if ((state >= 3) && (len == 0)) {
-        printe("4WHS, len = 0\n");
-        return 0;
-    }
-
-    if (len == 0) {
+	
+	while (!len) {
         printe("No data ...\n");
-        pthread_cond_wait(&cond_work, &mutex_work);
+        if (state >= 3) {
+			printe("4WHS in progrss ...\n");
+			return 0;
+		}
+		if (state < 0)
+			return -1;
+		pthread_cond_wait(&cond_work, &mutex_work);
         len = (intptr_t) buf_end - (intptr_t) buf_front; 
         pthread_mutex_unlock(&mutex_work);
-    }
+	} 
 
     printe("Get data ... \n");
     if (len > buf_len)
@@ -274,5 +273,6 @@ void rdtp_close() {
     pthread_cond_broadcast(&cond_work);
     pthread_join(thread[0], NULL);
     pthread_join(thread[1], NULL);
+	state = -1;
     return;
 }

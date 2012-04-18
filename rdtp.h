@@ -12,6 +12,8 @@
 #include <arpa/inet.h>
 #include "rdtp_common.h"
 
+#define BUILD
+
 #define set_header(type, seq) (htonl((((type) << 28) | ((seq) & (~(0xF << 28))))))
 #define get_type(header) ((ntohl(header) >> 28) & (0xF))
 #define get_seq(header) (ntohl(header) & (~(0xF << 28)))

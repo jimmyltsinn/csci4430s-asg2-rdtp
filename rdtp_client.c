@@ -58,7 +58,6 @@ static void sender(struct rdtp_argv *argv) {
         seq = 1;
         sendto(sockfd, &header, sizeof(int), 0, 
                (struct sockaddr*) addr, sizeof(struct sockaddr_in));
-        perror("[> SYN] sendto()");
         set_abstimer(timer, RTO);
         printe("[> SYN] Start wait ... \n");
         if ((e = pthread_cond_timedwait(&cond_ack, &mutex_ack, &timer)) != 0) {
